@@ -1,0 +1,210 @@
+---
+title: "R for Geospatial Workshop"
+author: "Keene Morrow"
+date: "11/21/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(rgdal)
+library(raster)
+library(here)
+```
+# [Introduction to Raster Data](https://datacarpentry.org/r-raster-vector-geospatial/01-raster-structure/index.html)
+
+## Raster Basics
+
+```{r}
+# Load digital surface model for Harvard Forest
+# 1m GEOTIF
+# UTM Zone 18
+# can navigatre through subfolders by hitting tab
+HARV_dsmCrop_info <- GDALinfo("data/NEON-DS-Airborne-Remote-Sensing/NEON-DS-Airborne-Remote-Sensing/HARV/DSM/HARV_dsmCrop.tif")
+
+HARV_dsmCrop_info
+
+# Load the GEOTIF as a raster
+DSM_HARV <- raster(here::here("data", "NEON-DS-Airborne-Remote-Sensing", "NEON-DS-Airborne-Remote-Sensing", "HARV", "DSM", "HARV_dsmCrop.tif"))
+
+DSM_HARV
+
+# call summary of raster
+summary(DSM_HARV) # using 4.31% of cells
+summary(DSM_HARV, maxsamp=ncell(DSM_HARV)) # using all the cells
+```
+
+```{r}
+#DSM_HARV is currently a raster... we want a data frame to plot in ggplot
+
+DSM_HARV_df <- as.data.frame(DSM_HARV, xy = TRUE) %>%
+  mutate(z = HARV_dsmCrop)
+# this df has more than 2 million rows
+# consider whether a raster really needs to be a data frame...
+
+ggplot() +
+  geom_raster(data = DSM_HARV_df, aes(x = x, y = y, fill = z)) +
+  scale_fill_viridis_c() +
+  coord_quickmap()
+
+
+```
+
+```{r}
+plot(DSM_HARV) # makes a gross looking plot of the raster, but it's paster than ggplot for this purpose
+```
+
+## Coordinate Reference Systems
+
+## Challenge
+Use the output from the GDALinfo() function to find out what NoDataValue is used for our DSM_HARV dataset.
+
+```{r}
+GDALinfo("data/NEON-DS-Airborne-Remote-Sensing/NEON-DS-Airborne-Remote-Sensing/HARV/DSM/HARV_dsmCrop.tif")
+
+```
+
+Found in first data.frame output from GDALinfo()
+NoDataValue = -9999
+
+## Histogram of raster
+```{r}
+ggplot() +
+    geom_histogram(data = DSM_HARV_df, aes(HARV_dsmCrop))
+```
+
+# [Plot Raster Data in R](https://datacarpentry.org/r-raster-vector-geospatial/02-raster-plot/index.html)
+
+# [Reproject Raster Data in R](https://datacarpentry.org/r-raster-vector-geospatial/03-raster-reproject-in-r/index.html)
+
+## Raster Projection in R
+
+```{r}
+DTM_HARV <- raster(here::here("data", "NEON-DS-Airborne-Remote-Sensing", "NEON-DS-Airborne-Remote-Sensing", "HARV", "DTM", "HARV_dtmCrop.tif")) # WGS84 using UTM Zone 18
+
+DTM_HARV
+```
+
+
+```{r}
+DTM_hill_HARV <- raster(here::here("data", "NEON-DS-Airborne-Remote-Sensing", "NEON-DS-Airborne-Remote-Sensing", "HARV", "DTM", "HARV_DTMhill_WGS84.tif")) # WGS84 using lat-long
+
+crs(DTM_hill_HARV)
+
+```
+
+### Reprojecting the hillshade file
+
+*Reprojecting changes the data!*
+```{r}
+DTM_hill_UTMZ18N_HARV <- projectRaster(DTM_hill_HARV, crs = crs(DTM_HARV))
+
+```
+
+```{r}
+crs(DTM_hill_UTMZ18N_HARV)
+extent(DTM_hill_UTMZ18N_HARV)
+
+crs(DTM_HARV)
+```
+
+### [Raster Calculations in R](https://datacarpentry.org/r-raster-vector-geospatial/04-raster-calculations-in-r/index.html): Canopy Height Model
+Creating a canopy height model by subtracting digital terrain model from digital surface model
+
+```{r}
+# double check that the projections are the same
+crs(DTM_HARV)
+crs(DSM_HARV)
+
+# check that the extents are the same
+extent(DTM_HARV)
+extent(DSM_HARV)
+# they are
+# if they weren't, we'd use clip()
+
+# and check them out visually
+plot(DTM_HARV) # smoother and lower elevation
+plot(DSM_HARV) # rougher and higher elevation
+```
+#### With direct subtraction
+```{r}
+# quick and dirty canopy height model
+CHM <-  DSM_HARV - DTM_HARV
+plot(CHM)
+
+```
+#### With overlay()
+overlay() takes two rasters and a function telling it what to do with them
+
+
+```{r}
+CHM_ov_HARV <- overlay(DSM_HARV, DTM_HARV, fun = function(r1, r2) {return(r1 - r2)})
+
+plot(CHM_ov_HARV)
+```
+
+#### Challenge: Explore CHM Raster Values
+It’s often a good idea to explore the range of values in a raster dataset just like we might explore a dataset that we collected in the field.
+
+1. What is the min and maximum value for the Harvard Forest Canopy Height Model (CHM_HARV) that we just created?
+```{r}
+min(values(CHM_ov_HARV), na.rm = TRUE)
+max(values(CHM_ov_HARV), na.rm = TRUE)
+
+```
+
+
+2. What are two ways you can check this range of data for CHM_HARV?
+
+
+3. What is the distribution of all the pixel values in the CHM?
+
+
+4. Plot a histogram with 6 bins instead of the default and change the color of the histogram.
+```{r}
+CHM_df <- as.data.frame(CHM, xy = TRUE)
+```
+
+```{r}
+ggplot() +
+  geom_histogram(data = CHM_df,
+                 aes(x = layer),
+                 # bins = 6,
+                 fill = "darkgreen",
+                 color = "grey20") +
+  theme_minimal()
+```
+
+
+5. Plot the CHM_HARV raster using breaks that make sense for the data. Include an appropriate color palette for the data, plot title and no axes ticks / labels.
+
+
+### Export a GeoTIFF
+
+```{r}
+writeRaster(CHM_ov_HARV, "CHM_HARV.tiff",
+            format="GTiff",
+            overwrite=TRUE,
+            NAflag=-9999)
+```
+
+### [Work With Multi-Band Rasters in R](https://datacarpentry.org/r-raster-vector-geospatial/05-raster-multi-band-in-r/index.html)
+
+#### Getting Started with Multi-Band Data in R
+
+```{r}
+RGB_band1_HARV <- raster("data/NEON-DS-Airborne-Remote-Sensing/NEON-DS-Airborne-Remote-Sensing/HARV/RGB_Imagery/HARV_RGB_Ortho.tif")
+
+RGB_band1_HARV_df  <- as.data.frame(RGB_band1_HARV, xy = TRUE)
+
+ggplot() +
+  geom_raster(data = RGB_band1_HARV_df,
+              aes(x = x, y = y, alpha = HARV_RGB_Ortho)) + 
+  coord_quickmap()
+```
+
+```{r}
+RGB_stack_HARV <- stack(here::here("data", "NEON-DS-Airborne-Remote-Sensing", "NEON-DS-Airborne-Remote-Sensing", "HARV", "RGB_Imagery", "HARV_RGB_Ortho.tif"))
+```
+
